@@ -1,6 +1,7 @@
 package bcsgo
 
 import (
+	"io"
 	"fmt"
 	"net/http"
 	"os"
@@ -44,6 +45,19 @@ func (this *Object) Link() string {
 func (this *Object) PublicLink() string {
 	return this.bucket.bcs.urlWithoutSign(this.bucket.Name, this.AbsolutePath)
 }
+func (this *Object) Get() (body []byte, err error) {
+	link := this.getUrl()
+	resp, body, err := this.bucket.bcs.httpClient.Get(link)
+	err = mergeResponseError(err, resp)
+	if err != nil {
+		return nil, err
+	} else {
+		this.Size = resp.ContentLength
+		this.ContentMD5 = resp.Header.Get(HEADER_CONTENT_MD5)
+		this.VersionKey = resp.Header.Get(HEADER_VERSION)
+		return body, nil
+	}
+}
 func (this *Object) Head() error {
 	link := this.headUrl()
 	resp, _, err := this.bucket.bcs.httpClient.Head(link)
@@ -80,6 +94,20 @@ func (this *Object) putFileInner(localFile string, acl string) (*Object, error) 
 		}
 	}
 	resp, _, err := this.bucket.bcs.httpClient.Put(link, file, fileInfo.Size(), modifyHeader)
+	err = mergeResponseError(err, resp)
+	if err != nil {
+		return nil, err
+	} else {
+		this.ContentMD5 = resp.Header.Get(HEADER_CONTENT_MD5)
+		this.VersionKey = resp.Header.Get(HEADER_VERSION) // TODO check version json and this
+		this.Size, _ = strconv.ParseInt(resp.Header.Get(HEADER_FILESIZE), 10, 64)
+		return this, err
+	}
+}
+func (this *Object) Put(file io.Reader, size int64) (*Object, error) {
+	link := this.putUrl()
+
+	resp, _, err := this.bucket.bcs.httpClient.Put(link, file, size, nil)
 	err = mergeResponseError(err, resp)
 	if err != nil {
 		return nil, err
